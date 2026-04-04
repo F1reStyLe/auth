@@ -1,0 +1,7 @@
+# Environment variables (sensitive data)
+.env
+
+# Common IDEs
+.idea/
+.vscode/
+*.swp

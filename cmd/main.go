@@ -1,7 +1,21 @@
 package main
 
-import "fmt"
+import (
+	"log/slog"
+	"os"
+
+	"github.com/F1reStyLe/auth/internal/app"
+	"github.com/F1reStyLe/auth/internal/config"
+	"github.com/F1reStyLe/auth/internal/logger"
+)
 
 func main() {
-	fmt.Println("auth service starting")
+	cfg := config.MustLoad()
+
+	log := logger.NewLogger(cfg)
+
+	if err := app.Run(cfg, log); err != nil {
+		log.Error("application stopped with error", slog.String("error", err.Error()))
+		os.Exit(1)
+	}
 }

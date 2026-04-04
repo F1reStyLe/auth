@@ -1,0 +1,11 @@
+services:
+  auth:
+    build:
+      context: .
+    volumes:
+      - .:/app
+    ports:
+      - "${HTTP_PORT}:${HTTP_PORT}"
+    environment:
+      HTTP_PORT: ${HTTP_PORT}
+      APP_ENV: ${APP_ENV}
