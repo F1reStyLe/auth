@@ -6,12 +6,11 @@ import (
 	"os"
 	"time"
 
-	"github.com/F1reStyLe/auth/internal/config"
 	"github.com/go-chi/chi/v5/middleware"
 )
 
-func NewLogger(cfg *config.Config) *slog.Logger {
-	switch cfg.AppEnv {
+func NewLogger(AppEnv string) *slog.Logger {
+	switch AppEnv {
 	case "prod":
 		{
 			return slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{

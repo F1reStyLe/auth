@@ -1,4 +1,9 @@
-.PHONY: run tidy test build
+.PHONY: run tidy test docker-up docker-down
+
+ifneq (,$(wildcard ./.env))
+include .env
+export
+endif
 
 run:
 	go run ./cmd
@@ -9,5 +14,8 @@ tidy:
 test:
 	go test ./...
 
-build:
-	go build -o bin/auth ./cmd
+dcup:
+	docker compose up -d --build
+
+dcdown:
+	docker compose down -v

@@ -10,17 +10,47 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/F1reStyLe/auth/auth"
 	"github.com/F1reStyLe/auth/internal/config"
+	"github.com/F1reStyLe/auth/internal/migrator"
 	httpserver "github.com/F1reStyLe/auth/internal/transport/http"
+	"github.com/F1reStyLe/auth/platform/postgres"
+	"github.com/F1reStyLe/auth/token"
 )
 
 func Run(cfg *config.Config, log *slog.Logger) error {
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 
+	db, err := postgres.New(cfg.DatabaseURL)
+
+	if err != nil {
+		return fmt.Errorf("init postgres: %w", err)
+	}
+
+	log.Info("database connected")
+
+	if err := migrator.Up(ctx, db, "migrations"); err != nil {
+		return fmt.Errorf("run migrations: %w", err)
+	}
+
+	log.Info("migrations applied")
+
+	repo := auth.NewRepository(db)
+	jwtManager := token.NewJWTManager(cfg.JWTSecret)
+	service := auth.NewService(
+		repo,
+		jwtManager,
+		cfg.TokenExpiration,
+		cfg.RefreshTokenTTL,
+		cfg.VerifyTokenTTL,
+		cfg.ResetTokenTTL,
+	)
+	authHandler := auth.NewHandler(service)
+
 	server := &http.Server{
 		Addr:              ":" + cfg.HTTPPort,
-		Handler:           httpserver.NewHandler(log),
+		Handler:           httpserver.NewHandler(log, authHandler),
 		ReadHeaderTimeout: 5 * time.Second,
 	}
 

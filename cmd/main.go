@@ -12,7 +12,7 @@ import (
 func main() {
 	cfg := config.MustLoad()
 
-	log := logger.NewLogger(cfg)
+	log := logger.NewLogger(cfg.AppEnv)
 
 	if err := app.Run(cfg, log); err != nil {
 		log.Error("application stopped with error", slog.String("error", err.Error()))
