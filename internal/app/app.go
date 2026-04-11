@@ -38,6 +38,32 @@ func Run(cfg *config.Config, log *slog.Logger) error {
 
 	repo := auth.NewRepository(db)
 	jwtManager := token.NewJWTManager(cfg.JWTSecret)
+	oauthProviders := map[auth.OAuthProvider]auth.OAuthProviderClient{}
+	httpClient := &http.Client{Timeout: 10 * time.Second}
+	if cfg.GoogleClientID != "" && cfg.GoogleClientSecret != "" {
+		oauthProviders[auth.OAuthProviderGoogle] = auth.NewGoogleOAuthClient(
+			httpClient,
+			cfg.GoogleClientID,
+			cfg.GoogleClientSecret,
+			cfg.AppBaseURL+"/api/v1/auth/oauth/google/callback",
+		)
+	}
+	if cfg.GitHubClientID != "" && cfg.GitHubClientSecret != "" {
+		oauthProviders[auth.OAuthProviderGitHub] = auth.NewGitHubOAuthClient(
+			httpClient,
+			cfg.GitHubClientID,
+			cfg.GitHubClientSecret,
+			cfg.AppBaseURL+"/api/v1/auth/oauth/github/callback",
+		)
+	}
+	if cfg.VKClientID != "" && cfg.VKClientSecret != "" {
+		oauthProviders[auth.OAuthProviderVK] = auth.NewVKOAuthClient(
+			httpClient,
+			cfg.VKClientID,
+			cfg.VKClientSecret,
+			cfg.AppBaseURL+"/api/v1/auth/oauth/vk/callback",
+		)
+	}
 	service := auth.NewService(
 		repo,
 		jwtManager,
@@ -45,12 +71,13 @@ func Run(cfg *config.Config, log *slog.Logger) error {
 		cfg.RefreshTokenTTL,
 		cfg.VerifyTokenTTL,
 		cfg.ResetTokenTTL,
+		cfg.JWTSecret,
+		oauthProviders,
 	)
-	authHandler := auth.NewHandler(service)
 
 	server := &http.Server{
 		Addr:              ":" + cfg.HTTPPort,
-		Handler:           httpserver.NewHandler(log, authHandler),
+		Handler:           httpserver.NewHandler(log, service, jwtManager, repo),
 		ReadHeaderTimeout: 5 * time.Second,
 	}
 

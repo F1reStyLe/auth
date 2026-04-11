@@ -57,3 +57,39 @@ type OneTimeTokenResponse struct {
 	Token     string    `json:"token,omitempty"`
 	ExpiresAt time.Time `json:"expires_at,omitempty"`
 }
+
+type UpdateProfileRequest struct {
+	FullName  string `json:"full_name"`
+	AvatarURL string `json:"avatar_url"`
+	Status    string `json:"status"`
+	Timezone  string `json:"timezone"`
+}
+
+type UpdateUserRoleRequest struct {
+	Role Role `json:"role"`
+}
+
+type UpdateUserStatusRequest struct {
+	Status AccountStatus `json:"status"`
+}
+
+type OAuthStartResponse struct {
+	Provider         OAuthProvider `json:"provider"`
+	AuthorizationURL string        `json:"authorization_url"`
+	State            string        `json:"state"`
+}
+
+type OAuthCallbackResponse struct {
+	User   *UserProfileResponse `json:"user"`
+	Tokens *TokenResponse       `json:"tokens"`
+}
+
+type UserProfileResponse struct {
+	ID              int64         `json:"id"`
+	Username        string        `json:"username"`
+	Email           string        `json:"email"`
+	EmailVerifiedAt *time.Time    `json:"email_verified_at,omitempty"`
+	Role            Role          `json:"role"`
+	AccountStatus   AccountStatus `json:"account_status"`
+	Profile         UserProfile   `json:"profile"`
+}
