@@ -15,6 +15,8 @@ type repositoryMock struct {
 	getUserByIDFn           func(context.Context, int64) (*User, error)
 	getUserByUsernameFn     func(context.Context, string) (*User, error)
 	getUserByEmailFn        func(context.Context, string) (*User, error)
+	getUserProfileFn        func(context.Context, int64) (*UserProfile, error)
+	upsertUserProfileFn     func(context.Context, UserProfile) (*UserProfile, error)
 	createSessionFn         func(context.Context, CreateSessionParams) (*Session, error)
 	getSessionByTokenHashFn func(context.Context, string) (*Session, error)
 	rotateSessionTokenFn    func(context.Context, int64, string, time.Time, time.Time) (*Session, error)
@@ -26,66 +28,165 @@ type repositoryMock struct {
 	replaceOneTimeTokenFn   func(context.Context, CreateOneTimeTokenParams) (*OneTimeToken, error)
 	markEmailVerifiedFn     func(context.Context, int64, time.Time) error
 	updatePasswordHashFn    func(context.Context, int64, string) error
+	getOAuthAccountFn       func(context.Context, OAuthProvider, string) (*OAuthAccount, error)
+	createOAuthAccountFn    func(context.Context, CreateOAuthAccountParams) (*OAuthAccount, error)
+	updateUserRoleFn        func(context.Context, int64, Role) error
+	updateAccountStatusFn   func(context.Context, int64, AccountStatus) error
+	createAuditLogFn        func(context.Context, CreateAuditLogParams) error
 }
 
 func (m *repositoryMock) CreateUser(ctx context.Context, params CreateUserParams) (*User, error) {
+	if m.createUserFn == nil {
+		return nil, nil
+	}
 	return m.createUserFn(ctx, params)
 }
 
 func (m *repositoryMock) GetUserByID(ctx context.Context, id int64) (*User, error) {
+	if m.getUserByIDFn == nil {
+		return nil, nil
+	}
 	return m.getUserByIDFn(ctx, id)
 }
 
 func (m *repositoryMock) GetUserByUsername(ctx context.Context, username string) (*User, error) {
+	if m.getUserByUsernameFn == nil {
+		return nil, nil
+	}
 	return m.getUserByUsernameFn(ctx, username)
 }
 
 func (m *repositoryMock) GetUserByEmail(ctx context.Context, email string) (*User, error) {
+	if m.getUserByEmailFn == nil {
+		return nil, nil
+	}
 	return m.getUserByEmailFn(ctx, email)
 }
 
+func (m *repositoryMock) GetUserProfile(ctx context.Context, userID int64) (*UserProfile, error) {
+	if m.getUserProfileFn == nil {
+		return nil, nil
+	}
+	return m.getUserProfileFn(ctx, userID)
+}
+
+func (m *repositoryMock) UpsertUserProfile(ctx context.Context, profile UserProfile) (*UserProfile, error) {
+	if m.upsertUserProfileFn == nil {
+		return &profile, nil
+	}
+	return m.upsertUserProfileFn(ctx, profile)
+}
+
 func (m *repositoryMock) CreateSession(ctx context.Context, params CreateSessionParams) (*Session, error) {
+	if m.createSessionFn == nil {
+		return nil, nil
+	}
 	return m.createSessionFn(ctx, params)
 }
 
 func (m *repositoryMock) GetSessionByTokenHash(ctx context.Context, tokenHash string) (*Session, error) {
+	if m.getSessionByTokenHashFn == nil {
+		return nil, nil
+	}
 	return m.getSessionByTokenHashFn(ctx, tokenHash)
 }
 
 func (m *repositoryMock) RotateSessionToken(ctx context.Context, sessionID int64, tokenHash string, expiresAt time.Time, lastUsedAt time.Time) (*Session, error) {
+	if m.rotateSessionTokenFn == nil {
+		return nil, nil
+	}
 	return m.rotateSessionTokenFn(ctx, sessionID, tokenHash, expiresAt, lastUsedAt)
 }
 
 func (m *repositoryMock) RevokeSessionByTokenHash(ctx context.Context, tokenHash string, revokedAt time.Time) error {
+	if m.revokeSessionByHashFn == nil {
+		return nil
+	}
 	return m.revokeSessionByHashFn(ctx, tokenHash, revokedAt)
 }
 
 func (m *repositoryMock) RevokeAllUserSessions(ctx context.Context, userID int64, revokedAt time.Time) error {
+	if m.revokeAllSessionsFn == nil {
+		return nil
+	}
 	return m.revokeAllSessionsFn(ctx, userID, revokedAt)
 }
 
 func (m *repositoryMock) CreateOneTimeToken(ctx context.Context, params CreateOneTimeTokenParams) (*OneTimeToken, error) {
+	if m.createOneTimeTokenFn == nil {
+		return nil, nil
+	}
 	return m.createOneTimeTokenFn(ctx, params)
 }
 
 func (m *repositoryMock) GetValidOneTimeToken(ctx context.Context, purpose, tokenHash string) (*OneTimeToken, error) {
+	if m.getValidTokenFn == nil {
+		return nil, nil
+	}
 	return m.getValidTokenFn(ctx, purpose, tokenHash)
 }
 
 func (m *repositoryMock) ConsumeOneTimeToken(ctx context.Context, tokenID int64, consumedAt time.Time) error {
+	if m.consumeOneTimeTokenFn == nil {
+		return nil
+	}
 	return m.consumeOneTimeTokenFn(ctx, tokenID, consumedAt)
 }
 
 func (m *repositoryMock) ReplaceOneTimeToken(ctx context.Context, params CreateOneTimeTokenParams) (*OneTimeToken, error) {
+	if m.replaceOneTimeTokenFn == nil {
+		return nil, nil
+	}
 	return m.replaceOneTimeTokenFn(ctx, params)
 }
 
 func (m *repositoryMock) MarkUserEmailVerified(ctx context.Context, userID int64, verifiedAt time.Time) error {
+	if m.markEmailVerifiedFn == nil {
+		return nil
+	}
 	return m.markEmailVerifiedFn(ctx, userID, verifiedAt)
 }
 
 func (m *repositoryMock) UpdatePasswordHash(ctx context.Context, userID int64, passwordHash string) error {
+	if m.updatePasswordHashFn == nil {
+		return nil
+	}
 	return m.updatePasswordHashFn(ctx, userID, passwordHash)
+}
+
+func (m *repositoryMock) GetOAuthAccount(ctx context.Context, provider OAuthProvider, providerUserID string) (*OAuthAccount, error) {
+	if m.getOAuthAccountFn == nil {
+		return nil, ErrUnauthorized
+	}
+	return m.getOAuthAccountFn(ctx, provider, providerUserID)
+}
+
+func (m *repositoryMock) CreateOAuthAccount(ctx context.Context, params CreateOAuthAccountParams) (*OAuthAccount, error) {
+	if m.createOAuthAccountFn == nil {
+		return nil, nil
+	}
+	return m.createOAuthAccountFn(ctx, params)
+}
+
+func (m *repositoryMock) UpdateUserRole(ctx context.Context, userID int64, role Role) error {
+	if m.updateUserRoleFn == nil {
+		return nil
+	}
+	return m.updateUserRoleFn(ctx, userID, role)
+}
+
+func (m *repositoryMock) UpdateAccountStatus(ctx context.Context, userID int64, status AccountStatus) error {
+	if m.updateAccountStatusFn == nil {
+		return nil
+	}
+	return m.updateAccountStatusFn(ctx, userID, status)
+}
+
+func (m *repositoryMock) CreateAuditLog(ctx context.Context, params CreateAuditLogParams) error {
+	if m.createAuditLogFn == nil {
+		return nil
+	}
+	return m.createAuditLogFn(ctx, params)
 }
 
 type tokenManagerMock struct {
@@ -94,6 +195,19 @@ type tokenManagerMock struct {
 
 func (m tokenManagerMock) Generate(exp time.Duration, userID int64) (string, error) {
 	return m.generateFn(exp, userID)
+}
+
+type oauthProviderMock struct {
+	authCodeURLFn func(state string) string
+	exchangeFn    func(context.Context, string) (*OAuthIdentity, error)
+}
+
+func (m oauthProviderMock) AuthCodeURL(state string) string {
+	return m.authCodeURLFn(state)
+}
+
+func (m oauthProviderMock) Exchange(ctx context.Context, code string) (*OAuthIdentity, error) {
+	return m.exchangeFn(ctx, code)
 }
 
 func TestServiceLoginRequiresVerifiedEmail(t *testing.T) {
@@ -120,6 +234,8 @@ func TestServiceLoginRequiresVerifiedEmail(t *testing.T) {
 		24*time.Hour,
 		24*time.Hour,
 		time.Hour,
+		"test-secret",
+		nil,
 	)
 
 	_, err = svc.Login(context.Background(), LoginRequest{
@@ -128,6 +244,45 @@ func TestServiceLoginRequiresVerifiedEmail(t *testing.T) {
 	})
 	if !errors.Is(err, ErrEmailNotVerified) {
 		t.Fatalf("Login error = %v, want %v", err, ErrEmailNotVerified)
+	}
+}
+
+func TestServiceLoginBlockedAccount(t *testing.T) {
+	t.Parallel()
+
+	passwordHash, err := bcrypt.GenerateFromPassword([]byte("secret"), bcrypt.DefaultCost)
+	if err != nil {
+		t.Fatalf("GenerateFromPassword: %v", err)
+	}
+	verifiedAt := time.Now().UTC()
+
+	svc := NewService(
+		&repositoryMock{
+			getUserByEmailFn: func(context.Context, string) (*User, error) {
+				return &User{
+					ID:              7,
+					Email:           "user@example.com",
+					PasswordHash:    string(passwordHash),
+					EmailVerifiedAt: &verifiedAt,
+					AccountStatus:   AccountStatusBlocked,
+				}, nil
+			},
+		},
+		tokenManagerMock{generateFn: func(time.Duration, int64) (string, error) { return "", errors.New("unexpected token generation") }},
+		15*time.Minute,
+		24*time.Hour,
+		24*time.Hour,
+		time.Hour,
+		"test-secret",
+		nil,
+	)
+
+	_, err = svc.Login(context.Background(), LoginRequest{
+		Email:    "user@example.com",
+		Password: "secret",
+	})
+	if !errors.Is(err, ErrAccountBlocked) {
+		t.Fatalf("Login error = %v, want %v", err, ErrAccountBlocked)
 	}
 }
 
@@ -150,6 +305,12 @@ func TestServiceRefreshRotatesSession(t *testing.T) {
 					TokenHash: oldHash,
 					ExpiresAt: time.Now().UTC().Add(time.Hour),
 				}, nil
+			},
+			getUserByIDFn: func(_ context.Context, id int64) (*User, error) {
+				if id != 42 {
+					t.Fatalf("GetUserByID id = %d, want 42", id)
+				}
+				return &User{ID: 42, AccountStatus: AccountStatusActive}, nil
 			},
 			rotateSessionTokenFn: func(_ context.Context, sessionID int64, tokenHash string, expiresAt time.Time, lastUsedAt time.Time) (*Session, error) {
 				if sessionID != 11 {
@@ -181,6 +342,8 @@ func TestServiceRefreshRotatesSession(t *testing.T) {
 		24*time.Hour,
 		24*time.Hour,
 		time.Hour,
+		"test-secret",
+		nil,
 	)
 
 	resp, err := svc.Refresh(context.Background(), RefreshTokenRequest{RefreshToken: oldToken})
@@ -243,6 +406,8 @@ func TestServiceVerifyEmailConsumesTokenAndMarksUser(t *testing.T) {
 		24*time.Hour,
 		24*time.Hour,
 		time.Hour,
+		"test-secret",
+		nil,
 	)
 
 	if err := svc.VerifyEmail(context.Background(), VerifyEmailRequest{Token: rawToken}); err != nil {
@@ -302,6 +467,8 @@ func TestServiceResetPasswordUpdatesHashAndRevokesSessions(t *testing.T) {
 		24*time.Hour,
 		24*time.Hour,
 		time.Hour,
+		"test-secret",
+		nil,
 	)
 
 	if err := svc.ResetPassword(context.Background(), ResetPasswordRequest{
@@ -344,6 +511,8 @@ func TestServiceLogoutRevokesSessionByHashedToken(t *testing.T) {
 		24*time.Hour,
 		24*time.Hour,
 		time.Hour,
+		"test-secret",
+		nil,
 	)
 
 	if err := svc.Logout(context.Background(), LogoutRequest{RefreshToken: rawToken}); err != nil {
@@ -363,6 +532,8 @@ func TestServiceRequestPasswordResetUnknownEmailIsAccepted(t *testing.T) {
 		24*time.Hour,
 		24*time.Hour,
 		time.Hour,
+		"test-secret",
+		nil,
 	)
 
 	resp, err := svc.RequestPasswordReset(context.Background(), RequestPasswordResetRequest{Email: "missing@example.com"})
@@ -397,6 +568,8 @@ func TestGetUserPrefersEmailLookup(t *testing.T) {
 		24*time.Hour,
 		24*time.Hour,
 		time.Hour,
+		"test-secret",
+		nil,
 	)
 
 	user, err := getUser(svc, context.Background(), LoginRequest{
@@ -408,5 +581,41 @@ func TestGetUserPrefersEmailLookup(t *testing.T) {
 	}
 	if user.ID != 1 {
 		t.Fatalf("user.ID = %d, want 1", user.ID)
+	}
+}
+
+func TestServiceOAuthStartBuildsProviderURL(t *testing.T) {
+	t.Parallel()
+
+	svc := NewService(
+		&repositoryMock{},
+		tokenManagerMock{generateFn: func(time.Duration, int64) (string, error) { return "", nil }},
+		15*time.Minute,
+		24*time.Hour,
+		24*time.Hour,
+		time.Hour,
+		"test-secret",
+		map[OAuthProvider]OAuthProviderClient{
+			OAuthProviderGoogle: oauthProviderMock{
+				authCodeURLFn: func(state string) string {
+					if state == "" {
+						t.Fatal("expected non-empty state")
+					}
+					return "https://accounts.example/auth?state=" + state
+				},
+				exchangeFn: func(context.Context, string) (*OAuthIdentity, error) { return nil, nil },
+			},
+		},
+	)
+
+	resp, err := svc.OAuthStart(context.Background(), OAuthProviderGoogle)
+	if err != nil {
+		t.Fatalf("OAuthStart returned error: %v", err)
+	}
+	if resp.Provider != OAuthProviderGoogle {
+		t.Fatalf("provider = %q, want %q", resp.Provider, OAuthProviderGoogle)
+	}
+	if resp.AuthorizationURL == "" || resp.State == "" {
+		t.Fatal("expected authorization url and state to be set")
 	}
 }
