@@ -22,9 +22,7 @@ type TokenResponse struct {
 }
 
 type RegisterResponse struct {
-	Status                string    `json:"status"`
-	VerificationToken     string    `json:"verification_token,omitempty"`
-	VerificationExpiresAt time.Time `json:"verification_expires_at,omitempty"`
+	Status string `json:"status"`
 }
 
 type RefreshTokenRequest struct {
@@ -53,9 +51,7 @@ type ResetPasswordRequest struct {
 }
 
 type OneTimeTokenResponse struct {
-	Status    string    `json:"status"`
-	Token     string    `json:"token,omitempty"`
-	ExpiresAt time.Time `json:"expires_at,omitempty"`
+	Status string `json:"status"`
 }
 
 type UpdateProfileRequest struct {

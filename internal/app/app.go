@@ -13,6 +13,7 @@ import (
 	"github.com/F1reStyLe/auth/auth"
 	"github.com/F1reStyLe/auth/internal/config"
 	"github.com/F1reStyLe/auth/internal/migrator"
+	"github.com/F1reStyLe/auth/internal/notify"
 	httpserver "github.com/F1reStyLe/auth/internal/transport/http"
 	"github.com/F1reStyLe/auth/platform/postgres"
 	"github.com/F1reStyLe/auth/token"
@@ -27,6 +28,7 @@ func Run(cfg *config.Config, log *slog.Logger) error {
 	if err != nil {
 		return fmt.Errorf("init postgres: %w", err)
 	}
+	defer db.Close()
 
 	log.Info("database connected")
 
@@ -38,6 +40,21 @@ func Run(cfg *config.Config, log *slog.Logger) error {
 
 	repo := auth.NewRepository(db)
 	jwtManager := token.NewJWTManager(cfg.JWTSecret)
+	var notifier auth.NotificationSender
+	if cfg.SMTPHost != "" {
+		mailer, err := notify.NewSMTPMailer(notify.SMTPConfig{
+			Host:      cfg.SMTPHost,
+			Port:      cfg.SMTPPort,
+			Username:  cfg.SMTPUsername,
+			Password:  cfg.SMTPPassword,
+			FromEmail: cfg.SMTPFromEmail,
+			FromName:  cfg.SMTPFromName,
+		})
+		if err != nil {
+			return fmt.Errorf("init smtp mailer: %w", err)
+		}
+		notifier = mailer
+	}
 	oauthProviders := map[auth.OAuthProvider]auth.OAuthProviderClient{}
 	httpClient := &http.Client{Timeout: 10 * time.Second}
 	if cfg.GoogleClientID != "" && cfg.GoogleClientSecret != "" {
@@ -67,17 +84,22 @@ func Run(cfg *config.Config, log *slog.Logger) error {
 	service := auth.NewService(
 		repo,
 		jwtManager,
+		notifier,
 		cfg.TokenExpiration,
 		cfg.RefreshTokenTTL,
 		cfg.VerifyTokenTTL,
 		cfg.ResetTokenTTL,
 		cfg.JWTSecret,
+		cfg.AppBaseURL,
 		oauthProviders,
 	)
 
 	server := &http.Server{
 		Addr:              ":" + cfg.HTTPPort,
 		Handler:           httpserver.NewHandler(log, service, jwtManager, repo),
+		ReadTimeout:       cfg.ReadTimeout,
+		WriteTimeout:      cfg.WriteTimeout,
+		IdleTimeout:       cfg.IdleTimeout,
 		ReadHeaderTimeout: 5 * time.Second,
 	}
 

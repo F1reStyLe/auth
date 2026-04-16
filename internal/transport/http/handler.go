@@ -23,10 +23,15 @@ func NewHandler(log *slog.Logger, authService *auth.Service, jwtManager *authjwt
 	r := chi.NewRouter()
 	registerLimiter := NewRateLimiter(5, time.Minute)
 	loginLimiter := NewRateLimiter(10, time.Minute)
+	refreshLimiter := NewRateLimiter(30, time.Minute)
+	passwordResetRequestLimiter := NewRateLimiter(5, 15*time.Minute)
+	passwordResetConfirmLimiter := NewRateLimiter(10, 15*time.Minute)
+	verifyEmailLimiter := NewRateLimiter(10, 15*time.Minute)
 
 	r.Use(middleware.RequestID)
 	r.Use(logger.NewRequestLogger(log))
 	r.Use(middleware.Recoverer)
+	r.Use(securityHeaders)
 
 	r.Get("/health", func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
@@ -37,14 +42,14 @@ func NewHandler(log *slog.Logger, authService *auth.Service, jwtManager *authjwt
 		r.Route("/auth", func(r chi.Router) {
 			r.With(registerLimiter.Middleware()).Post("/register", authHandler.Register)
 			r.With(loginLimiter.Middleware()).Post("/login", authHandler.Login)
-			r.Post("/refresh", authHandler.Refresh)
+			r.With(refreshLimiter.Middleware()).Post("/refresh", authHandler.Refresh)
 			r.Post("/logout", authHandler.Logout)
 			r.Get("/oauth/{provider}/start", authHandler.OAuthStart)
 			r.Get("/oauth/{provider}/callback", authHandler.OAuthCallback)
-			r.Post("/verify-email/request", authHandler.RequestEmailVerification)
-			r.Post("/verify-email/confirm", authHandler.VerifyEmail)
-			r.Post("/password-reset/request", authHandler.RequestPasswordReset)
-			r.Post("/password-reset/confirm", authHandler.ResetPassword)
+			r.With(verifyEmailLimiter.Middleware()).Post("/verify-email/request", authHandler.RequestEmailVerification)
+			r.With(verifyEmailLimiter.Middleware()).Post("/verify-email/confirm", authHandler.VerifyEmail)
+			r.With(passwordResetRequestLimiter.Middleware()).Post("/password-reset/request", authHandler.RequestPasswordReset)
+			r.With(passwordResetConfirmLimiter.Middleware()).Post("/password-reset/confirm", authHandler.ResetPassword)
 		})
 
 		r.Group(func(r chi.Router) {
@@ -62,4 +67,14 @@ func NewHandler(log *slog.Logger, authService *auth.Service, jwtManager *authjwt
 	})
 
 	return r
+}
+
+func securityHeaders(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("X-Content-Type-Options", "nosniff")
+		w.Header().Set("X-Frame-Options", "DENY")
+		w.Header().Set("Referrer-Policy", "no-referrer")
+		w.Header().Set("Content-Security-Policy", "default-src 'none'; frame-ancestors 'none'")
+		next.ServeHTTP(w, r)
+	})
 }

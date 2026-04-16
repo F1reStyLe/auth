@@ -14,17 +14,20 @@ type clientWindow struct {
 }
 
 type RateLimiter struct {
-	mu      sync.Mutex
-	limit   int
-	window  time.Duration
-	clients map[string]clientWindow
+	mu            sync.Mutex
+	limit         int
+	window        time.Duration
+	cleanupWindow time.Duration
+	lastCleanup   time.Time
+	clients       map[string]clientWindow
 }
 
 func NewRateLimiter(limit int, window time.Duration) *RateLimiter {
 	return &RateLimiter{
-		limit:   limit,
-		window:  window,
-		clients: make(map[string]clientWindow),
+		limit:         limit,
+		window:        window,
+		cleanupWindow: maxDuration(window, time.Minute),
+		clients:       make(map[string]clientWindow),
 	}
 }
 
@@ -49,6 +52,11 @@ func (rl *RateLimiter) allow(key string) bool {
 	rl.mu.Lock()
 	defer rl.mu.Unlock()
 
+	if rl.lastCleanup.IsZero() || now.Sub(rl.lastCleanup) >= rl.cleanupWindow {
+		rl.cleanup(now)
+		rl.lastCleanup = now
+	}
+
 	current := rl.clients[key]
 	if now.After(current.windowEnd) {
 		rl.clients[key] = clientWindow{
@@ -68,10 +76,32 @@ func (rl *RateLimiter) allow(key string) bool {
 }
 
 func clientKey(r *http.Request) string {
+	if forwarded := strings.TrimSpace(r.Header.Get("X-Forwarded-For")); forwarded != "" {
+		parts := strings.Split(forwarded, ",")
+		if len(parts) > 0 && strings.TrimSpace(parts[0]) != "" {
+			return strings.TrimSpace(parts[0])
+		}
+	}
+
 	host, _, err := net.SplitHostPort(r.RemoteAddr)
 	if err != nil {
 		return strings.TrimSpace(r.RemoteAddr)
 	}
 
 	return host
+}
+
+func (rl *RateLimiter) cleanup(now time.Time) {
+	for key, window := range rl.clients {
+		if now.After(window.windowEnd) {
+			delete(rl.clients, key)
+		}
+	}
+}
+
+func maxDuration(a, b time.Duration) time.Duration {
+	if a > b {
+		return a
+	}
+	return b
 }
