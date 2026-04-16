@@ -37,6 +37,10 @@ func NewHandler(log *slog.Logger, authService *auth.Service, jwtManager *authjwt
 		w.WriteHeader(http.StatusOK)
 		_, _ = w.Write([]byte("ok"))
 	})
+	r.Get("/swagger", func(w http.ResponseWriter, r *http.Request) {
+		http.Redirect(w, r, "/swagger/", http.StatusMovedPermanently)
+	})
+	r.Handle("/swagger/*", http.StripPrefix("/swagger/", swaggerHandler()))
 
 	r.Route("/api/v1", func(r chi.Router) {
 		r.Route("/auth", func(r chi.Router) {

@@ -1,0 +1,54 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Auth Service API Docs</title>
+  <link rel="stylesheet" href="./assets/swagger-ui.css">
+  <style>
+    html, body {
+      margin: 0;
+      padding: 0;
+      background: #f5f7fb;
+      font-family: "Segoe UI", Arial, sans-serif;
+    }
+    header {
+      padding: 16px 24px;
+      background: #0f172a;
+      color: #fff;
+    }
+    header h1 {
+      margin: 0;
+      font-size: 20px;
+    }
+    #swagger-ui {
+      height: calc(100vh - 64px);
+    }
+    .swagger-ui .topbar {
+      display: none;
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>Auth Service Swagger</h1>
+  </header>
+  <div id="swagger-ui"></div>
+  <script src="./assets/swagger-ui-bundle.js"></script>
+  <script src="./assets/swagger-ui-standalone-preset.js"></script>
+  <script>
+    window.onload = function () {
+      window.ui = SwaggerUIBundle({
+        url: "./openapi.yaml",
+        dom_id: "#swagger-ui",
+        deepLinking: true,
+        presets: [
+          SwaggerUIBundle.presets.apis,
+          SwaggerUIStandalonePreset
+        ],
+        layout: "StandaloneLayout"
+      });
+    };
+  </script>
+</body>
+</html>
