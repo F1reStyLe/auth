@@ -14,4 +14,6 @@ var (
 	ErrForbidden          = errors.New("forbidden")
 	ErrOAuthNotConfigured = errors.New("oauth provider is not configured")
 	ErrInvalidOAuthState  = errors.New("invalid oauth state")
+	ErrInvalidInput       = errors.New("invalid input")
+	ErrWeakPassword       = errors.New("password does not meet complexity requirements")
 )

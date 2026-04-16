@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 	"testing"
 	"time"
 
@@ -197,6 +198,25 @@ func (m tokenManagerMock) Generate(exp time.Duration, userID int64) (string, err
 	return m.generateFn(exp, userID)
 }
 
+type notifierMock struct {
+	sendEmailVerificationFn func(context.Context, string, string, time.Time) error
+	sendPasswordResetFn     func(context.Context, string, string, time.Time) error
+}
+
+func (m notifierMock) SendEmailVerification(ctx context.Context, email, url string, expiresAt time.Time) error {
+	if m.sendEmailVerificationFn == nil {
+		return nil
+	}
+	return m.sendEmailVerificationFn(ctx, email, url, expiresAt)
+}
+
+func (m notifierMock) SendPasswordReset(ctx context.Context, email, url string, expiresAt time.Time) error {
+	if m.sendPasswordResetFn == nil {
+		return nil
+	}
+	return m.sendPasswordResetFn(ctx, email, url, expiresAt)
+}
+
 type oauthProviderMock struct {
 	authCodeURLFn func(state string) string
 	exchangeFn    func(context.Context, string) (*OAuthIdentity, error)
@@ -230,11 +250,13 @@ func TestServiceLoginRequiresVerifiedEmail(t *testing.T) {
 			getUserByUsernameFn: func(context.Context, string) (*User, error) { return nil, errors.New("unexpected call") },
 		},
 		tokenManagerMock{generateFn: func(time.Duration, int64) (string, error) { return "", errors.New("unexpected token generation") }},
+		nil,
 		15*time.Minute,
 		24*time.Hour,
 		24*time.Hour,
 		time.Hour,
 		"test-secret",
+		"https://app.example.com",
 		nil,
 	)
 
@@ -269,11 +291,13 @@ func TestServiceLoginBlockedAccount(t *testing.T) {
 			},
 		},
 		tokenManagerMock{generateFn: func(time.Duration, int64) (string, error) { return "", errors.New("unexpected token generation") }},
+		nil,
 		15*time.Minute,
 		24*time.Hour,
 		24*time.Hour,
 		time.Hour,
 		"test-secret",
+		"https://app.example.com",
 		nil,
 	)
 
@@ -338,11 +362,13 @@ func TestServiceRefreshRotatesSession(t *testing.T) {
 			}
 			return "access-token", nil
 		}},
+		nil,
 		15*time.Minute,
 		24*time.Hour,
 		24*time.Hour,
 		time.Hour,
 		"test-secret",
+		"https://app.example.com",
 		nil,
 	)
 
@@ -402,11 +428,13 @@ func TestServiceVerifyEmailConsumesTokenAndMarksUser(t *testing.T) {
 			},
 		},
 		tokenManagerMock{generateFn: func(time.Duration, int64) (string, error) { return "", nil }},
+		nil,
 		15*time.Minute,
 		24*time.Hour,
 		24*time.Hour,
 		time.Hour,
 		"test-secret",
+		"https://app.example.com",
 		nil,
 	)
 
@@ -463,24 +491,26 @@ func TestServiceResetPasswordUpdatesHashAndRevokesSessions(t *testing.T) {
 			},
 		},
 		tokenManagerMock{generateFn: func(time.Duration, int64) (string, error) { return "", nil }},
+		nil,
 		15*time.Minute,
 		24*time.Hour,
 		24*time.Hour,
 		time.Hour,
 		"test-secret",
+		"https://app.example.com",
 		nil,
 	)
 
 	if err := svc.ResetPassword(context.Background(), ResetPasswordRequest{
 		Token:       rawToken,
-		NewPassword: "new-secret",
+		NewPassword: "NewStrongPass123!",
 	}); err != nil {
 		t.Fatalf("ResetPassword returned error: %v", err)
 	}
 	if updatedHash == "" {
 		t.Fatal("expected password hash to be updated")
 	}
-	if bcrypt.CompareHashAndPassword([]byte(updatedHash), []byte("new-secret")) != nil {
+	if bcrypt.CompareHashAndPassword([]byte(updatedHash), []byte("NewStrongPass123!")) != nil {
 		t.Fatal("stored hash does not match new password")
 	}
 	if !revoked {
@@ -507,11 +537,13 @@ func TestServiceLogoutRevokesSessionByHashedToken(t *testing.T) {
 			},
 		},
 		tokenManagerMock{generateFn: func(time.Duration, int64) (string, error) { return "", nil }},
+		nil,
 		15*time.Minute,
 		24*time.Hour,
 		24*time.Hour,
 		time.Hour,
 		"test-secret",
+		"https://app.example.com",
 		nil,
 	)
 
@@ -528,11 +560,13 @@ func TestServiceRequestPasswordResetUnknownEmailIsAccepted(t *testing.T) {
 			getUserByEmailFn: func(context.Context, string) (*User, error) { return nil, ErrInvalidCredentials },
 		},
 		tokenManagerMock{generateFn: func(time.Duration, int64) (string, error) { return "", nil }},
+		nil,
 		15*time.Minute,
 		24*time.Hour,
 		24*time.Hour,
 		time.Hour,
 		"test-secret",
+		"https://app.example.com",
 		nil,
 	)
 
@@ -542,9 +576,6 @@ func TestServiceRequestPasswordResetUnknownEmailIsAccepted(t *testing.T) {
 	}
 	if resp.Status != "accepted" {
 		t.Fatalf("status = %q, want %q", resp.Status, "accepted")
-	}
-	if resp.Token != "" {
-		t.Fatalf("token = %q, want empty", resp.Token)
 	}
 }
 
@@ -564,11 +595,13 @@ func TestGetUserPrefersEmailLookup(t *testing.T) {
 			},
 		},
 		tokenManagerMock{generateFn: func(time.Duration, int64) (string, error) { return "", nil }},
+		nil,
 		15*time.Minute,
 		24*time.Hour,
 		24*time.Hour,
 		time.Hour,
 		"test-secret",
+		"https://app.example.com",
 		nil,
 	)
 
@@ -590,11 +623,13 @@ func TestServiceOAuthStartBuildsProviderURL(t *testing.T) {
 	svc := NewService(
 		&repositoryMock{},
 		tokenManagerMock{generateFn: func(time.Duration, int64) (string, error) { return "", nil }},
+		nil,
 		15*time.Minute,
 		24*time.Hour,
 		24*time.Hour,
 		time.Hour,
 		"test-secret",
+		"https://app.example.com",
 		map[OAuthProvider]OAuthProviderClient{
 			OAuthProviderGoogle: oauthProviderMock{
 				authCodeURLFn: func(state string) string {
@@ -617,5 +652,120 @@ func TestServiceOAuthStartBuildsProviderURL(t *testing.T) {
 	}
 	if resp.AuthorizationURL == "" || resp.State == "" {
 		t.Fatal("expected authorization url and state to be set")
+	}
+}
+
+func TestServiceRegisterSendsVerificationEmail(t *testing.T) {
+	t.Parallel()
+
+	var sentURL string
+
+	svc := NewService(
+		&repositoryMock{
+			createUserFn: func(_ context.Context, params CreateUserParams) (*User, error) {
+				return &User{
+					ID:              9,
+					Email:           params.Email,
+					Username:        params.Username,
+					AccountStatus:   AccountStatusActive,
+					EmailVerifiedAt: nil,
+				}, nil
+			},
+			upsertUserProfileFn: func(_ context.Context, profile UserProfile) (*UserProfile, error) {
+				return &profile, nil
+			},
+			replaceOneTimeTokenFn: func(_ context.Context, params CreateOneTimeTokenParams) (*OneTimeToken, error) {
+				return &OneTimeToken{
+					ID:        1,
+					UserID:    params.UserID,
+					Purpose:   params.Purpose,
+					TokenHash: params.TokenHash,
+					ExpiresAt: params.ExpiresAt,
+				}, nil
+			},
+		},
+		tokenManagerMock{generateFn: func(time.Duration, int64) (string, error) { return "", nil }},
+		notifierMock{
+			sendEmailVerificationFn: func(_ context.Context, email, verificationURL string, _ time.Time) error {
+				if email != "user@example.com" {
+					t.Fatalf("email = %q, want normalized email", email)
+				}
+				sentURL = verificationURL
+				return nil
+			},
+		},
+		15*time.Minute,
+		24*time.Hour,
+		24*time.Hour,
+		time.Hour,
+		"test-secret",
+		"https://app.example.com",
+		nil,
+	)
+
+	resp, err := svc.Register(context.Background(), RegisterRequest{
+		Email:    " User@Example.com ",
+		Username: "user.name",
+		Password: "StrongPass123!",
+	})
+	if err != nil {
+		t.Fatalf("Register returned error: %v", err)
+	}
+	if resp.Status != "created" {
+		t.Fatalf("status = %q, want created", resp.Status)
+	}
+	if !strings.HasPrefix(sentURL, "https://app.example.com/verify-email?token=") {
+		t.Fatalf("verification url = %q, want app verify-email URL", sentURL)
+	}
+}
+
+func TestServiceRequestPasswordResetSendsResetEmail(t *testing.T) {
+	t.Parallel()
+
+	var sentURL string
+
+	svc := NewService(
+		&repositoryMock{
+			getUserByEmailFn: func(_ context.Context, email string) (*User, error) {
+				return &User{ID: 17, Email: email}, nil
+			},
+			replaceOneTimeTokenFn: func(_ context.Context, params CreateOneTimeTokenParams) (*OneTimeToken, error) {
+				return &OneTimeToken{
+					ID:        2,
+					UserID:    params.UserID,
+					Purpose:   params.Purpose,
+					TokenHash: params.TokenHash,
+					ExpiresAt: params.ExpiresAt,
+				}, nil
+			},
+		},
+		tokenManagerMock{generateFn: func(time.Duration, int64) (string, error) { return "", nil }},
+		notifierMock{
+			sendPasswordResetFn: func(_ context.Context, email, resetURL string, _ time.Time) error {
+				if email != "user@example.com" {
+					t.Fatalf("email = %q, want normalized email", email)
+				}
+				sentURL = resetURL
+				return nil
+			},
+		},
+		15*time.Minute,
+		24*time.Hour,
+		24*time.Hour,
+		time.Hour,
+		"test-secret",
+		"https://app.example.com",
+		nil,
+	)
+
+	resp, err := svc.RequestPasswordReset(context.Background(), RequestPasswordResetRequest{Email: "user@example.com"})
+	if err != nil {
+		t.Fatalf("RequestPasswordReset returned error: %v", err)
+	}
+	if resp.Status != "accepted" {
+		t.Fatalf("status = %q, want accepted", resp.Status)
+	}
+	if !strings.HasPrefix(sentURL, "https://app.example.com/reset-password?token=") {
+		t.Fatalf("reset url = %q, want app reset-password URL", sentURL)
 	}
 }

@@ -8,6 +8,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"net/url"
 	"strings"
 	"time"
 
@@ -18,38 +19,60 @@ type TokenManager interface {
 	Generate(tokenExpiration time.Duration, userID int64) (string, error)
 }
 
+type NotificationSender interface {
+	SendEmailVerification(ctx context.Context, recipientEmail, verificationURL string, expiresAt time.Time) error
+	SendPasswordReset(ctx context.Context, recipientEmail, resetURL string, expiresAt time.Time) error
+}
+
 type Service struct {
 	repo            Repository
 	tokens          TokenManager
+	notifier        NotificationSender
 	tokenExpiration time.Duration
 	refreshTokenTTL time.Duration
 	verifyTokenTTL  time.Duration
 	resetTokenTTL   time.Duration
 	stateSecret     []byte
+	appBaseURL      string
 	oauthProviders  map[OAuthProvider]OAuthProviderClient
 }
 
 func NewService(
 	repo Repository,
 	tokens TokenManager,
+	notifier NotificationSender,
 	tokenExpiration time.Duration,
 	refreshTokenTTL time.Duration,
 	verifyTokenTTL time.Duration,
 	resetTokenTTL time.Duration,
 	stateSecret string,
+	appBaseURL string,
 	oauthProviders map[OAuthProvider]OAuthProviderClient,
 ) *Service {
+	if notifier == nil {
+		notifier = noopNotifier{}
+	}
+
 	return &Service{
 		repo:            repo,
 		tokens:          tokens,
+		notifier:        notifier,
 		tokenExpiration: tokenExpiration,
 		refreshTokenTTL: refreshTokenTTL,
 		verifyTokenTTL:  verifyTokenTTL,
 		resetTokenTTL:   resetTokenTTL,
 		stateSecret:     []byte(stateSecret),
+		appBaseURL:      strings.TrimRight(strings.TrimSpace(appBaseURL), "/"),
 		oauthProviders:  oauthProviders,
 	}
 }
+
+type noopNotifier struct{}
+
+func (noopNotifier) SendEmailVerification(context.Context, string, string, time.Time) error {
+	return nil
+}
+func (noopNotifier) SendPasswordReset(context.Context, string, string, time.Time) error { return nil }
 
 func getHash(pwd []byte) (string, error) {
 	hash, err := bcrypt.GenerateFromPassword(pwd, bcrypt.DefaultCost)
@@ -73,14 +96,28 @@ func generateOpaqueToken() (string, error) {
 }
 
 func (s *Service) Register(ctx context.Context, req RegisterRequest) (*RegisterResponse, error) {
+	req.Email = normalizeEmail(req.Email)
+	req.Username = strings.TrimSpace(req.Username)
+	req.Password = strings.TrimSpace(req.Password)
+
+	if err := validateEmail(req.Email); err != nil {
+		return nil, err
+	}
+	if err := validateUsername(req.Username); err != nil {
+		return nil, err
+	}
+	if err := validatePassword(req.Password); err != nil {
+		return nil, err
+	}
+
 	hash, err := getHash([]byte(req.Password))
 	if err != nil {
 		return nil, fmt.Errorf("hash password: %w", err)
 	}
 
 	user, err := s.repo.CreateUser(ctx, CreateUserParams{
-		Email:         strings.TrimSpace(strings.ToLower(req.Email)),
-		Username:      strings.TrimSpace(req.Username),
+		Email:         req.Email,
+		Username:      req.Username,
 		PasswordHash:  hash,
 		Role:          RoleUser,
 		AccountStatus: AccountStatusActive,
@@ -97,15 +134,16 @@ func (s *Service) Register(ctx context.Context, req RegisterRequest) (*RegisterR
 		return nil, err
 	}
 
-	_, tokenResp, err := s.issueOneTimeToken(ctx, user.ID, tokenPurposeVerifyEmail, s.verifyTokenTTL)
+	rawToken, expiresAt, err := s.issueOneTimeToken(ctx, user.ID, tokenPurposeVerifyEmail, s.verifyTokenTTL)
 	if err != nil {
 		return nil, err
 	}
+	if err := s.notifier.SendEmailVerification(ctx, user.Email, s.buildEmailVerificationURL(rawToken), expiresAt); err != nil {
+		return nil, fmt.Errorf("send verification email: %w", err)
+	}
 
 	return &RegisterResponse{
-		Status:                "created",
-		VerificationToken:     tokenResp.Token,
-		VerificationExpiresAt: tokenResp.ExpiresAt,
+		Status: "created",
 	}, nil
 }
 
@@ -120,6 +158,11 @@ func getUser(s *Service, ctx context.Context, req LoginRequest) (*User, error) {
 }
 
 func (s *Service) Login(ctx context.Context, req LoginRequest) (*TokenResponse, error) {
+	req.Password = strings.TrimSpace(req.Password)
+	if req.Password == "" {
+		return nil, fmt.Errorf("%w: password is required", ErrInvalidInput)
+	}
+
 	user, err := getUser(s, ctx, req)
 	if err != nil {
 		return nil, err
@@ -213,9 +256,12 @@ func (s *Service) Logout(ctx context.Context, req LogoutRequest) error {
 }
 
 func (s *Service) RequestEmailVerification(ctx context.Context, req RequestEmailVerificationRequest) (*OneTimeTokenResponse, error) {
-	email := strings.TrimSpace(strings.ToLower(req.Email))
+	email := normalizeEmail(req.Email)
 	if email == "" {
 		return &OneTimeTokenResponse{Status: "accepted"}, nil
+	}
+	if err := validateEmail(email); err != nil {
+		return nil, err
 	}
 	user, err := s.repo.GetUserByEmail(ctx, email)
 	if err != nil {
@@ -227,14 +273,20 @@ func (s *Service) RequestEmailVerification(ctx context.Context, req RequestEmail
 	if user.EmailVerifiedAt != nil {
 		return &OneTimeTokenResponse{Status: "accepted"}, nil
 	}
-	_, resp, err := s.issueOneTimeToken(ctx, user.ID, tokenPurposeVerifyEmail, s.verifyTokenTTL)
+	rawToken, expiresAt, err := s.issueOneTimeToken(ctx, user.ID, tokenPurposeVerifyEmail, s.verifyTokenTTL)
 	if err != nil {
 		return nil, err
 	}
-	return resp, nil
+	if err := s.notifier.SendEmailVerification(ctx, user.Email, s.buildEmailVerificationURL(rawToken), expiresAt); err != nil {
+		return nil, fmt.Errorf("send verification email: %w", err)
+	}
+	return &OneTimeTokenResponse{Status: "accepted"}, nil
 }
 
 func (s *Service) VerifyEmail(ctx context.Context, req VerifyEmailRequest) error {
+	if strings.TrimSpace(req.Token) == "" {
+		return fmt.Errorf("%w: token is required", ErrInvalidInput)
+	}
 	token, err := s.consumeOneTimeToken(ctx, req.Token, tokenPurposeVerifyEmail)
 	if err != nil {
 		return err
@@ -243,9 +295,12 @@ func (s *Service) VerifyEmail(ctx context.Context, req VerifyEmailRequest) error
 }
 
 func (s *Service) RequestPasswordReset(ctx context.Context, req RequestPasswordResetRequest) (*OneTimeTokenResponse, error) {
-	email := strings.TrimSpace(strings.ToLower(req.Email))
+	email := normalizeEmail(req.Email)
 	if email == "" {
 		return &OneTimeTokenResponse{Status: "accepted"}, nil
+	}
+	if err := validateEmail(email); err != nil {
+		return nil, err
 	}
 	user, err := s.repo.GetUserByEmail(ctx, email)
 	if err != nil {
@@ -254,14 +309,23 @@ func (s *Service) RequestPasswordReset(ctx context.Context, req RequestPasswordR
 		}
 		return nil, err
 	}
-	_, resp, err := s.issueOneTimeToken(ctx, user.ID, tokenPurposeResetPassword, s.resetTokenTTL)
+	rawToken, expiresAt, err := s.issueOneTimeToken(ctx, user.ID, tokenPurposeResetPassword, s.resetTokenTTL)
 	if err != nil {
 		return nil, err
 	}
-	return resp, nil
+	if err := s.notifier.SendPasswordReset(ctx, user.Email, s.buildPasswordResetURL(rawToken), expiresAt); err != nil {
+		return nil, fmt.Errorf("send password reset email: %w", err)
+	}
+	return &OneTimeTokenResponse{Status: "accepted"}, nil
 }
 
 func (s *Service) ResetPassword(ctx context.Context, req ResetPasswordRequest) error {
+	if strings.TrimSpace(req.Token) == "" {
+		return fmt.Errorf("%w: token is required", ErrInvalidInput)
+	}
+	if err := validatePassword(strings.TrimSpace(req.NewPassword)); err != nil {
+		return err
+	}
 	token, err := s.consumeOneTimeToken(ctx, req.Token, tokenPurposeResetPassword)
 	if err != nil {
 		return err
@@ -290,6 +354,12 @@ func (s *Service) GetMe(ctx context.Context, userID int64) (*UserProfileResponse
 }
 
 func (s *Service) UpdateMyProfile(ctx context.Context, userID int64, req UpdateProfileRequest) (*UserProfileResponse, error) {
+	if err := validateOptionalURL(req.AvatarURL); err != nil {
+		return nil, err
+	}
+	if err := validateTimezone(req.Timezone); err != nil {
+		return nil, err
+	}
 	if _, err := s.repo.UpsertUserProfile(ctx, UserProfile{
 		UserID:    userID,
 		FullName:  strings.TrimSpace(req.FullName),
@@ -554,10 +624,10 @@ func (s *Service) issueSession(ctx context.Context, userID int64) (*TokenRespons
 	}, nil
 }
 
-func (s *Service) issueOneTimeToken(ctx context.Context, userID int64, purpose string, ttl time.Duration) (string, *OneTimeTokenResponse, error) {
+func (s *Service) issueOneTimeToken(ctx context.Context, userID int64, purpose string, ttl time.Duration) (string, time.Time, error) {
 	rawToken, err := generateOpaqueToken()
 	if err != nil {
-		return "", nil, err
+		return "", time.Time{}, err
 	}
 	expiresAt := time.Now().UTC().Add(ttl)
 	if _, err := s.repo.ReplaceOneTimeToken(ctx, CreateOneTimeTokenParams{
@@ -566,13 +636,9 @@ func (s *Service) issueOneTimeToken(ctx context.Context, userID int64, purpose s
 		TokenHash: hashToken(rawToken),
 		ExpiresAt: expiresAt,
 	}); err != nil {
-		return "", nil, err
+		return "", time.Time{}, err
 	}
-	return rawToken, &OneTimeTokenResponse{
-		Status:    "accepted",
-		Token:     rawToken,
-		ExpiresAt: expiresAt,
-	}, nil
+	return rawToken, expiresAt, nil
 }
 
 func (s *Service) consumeOneTimeToken(ctx context.Context, rawToken, purpose string) (*OneTimeToken, error) {
@@ -653,4 +719,12 @@ func ensureUserAvailable(user *User) error {
 
 func errorsIsCredentialLookup(err error) bool {
 	return err != nil && (strings.Contains(err.Error(), ErrInvalidCredentials.Error()) || strings.Contains(err.Error(), ErrUnauthorized.Error()) || err == ErrInvalidCredentials || err == ErrUnauthorized)
+}
+
+func (s *Service) buildEmailVerificationURL(token string) string {
+	return s.appBaseURL + "/verify-email?token=" + url.QueryEscape(token)
+}
+
+func (s *Service) buildPasswordResetURL(token string) string {
+	return s.appBaseURL + "/reset-password?token=" + url.QueryEscape(token)
 }
